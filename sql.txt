@@ -1,17 +1,65 @@
-SELECT
-  REGEXP_SUBSTR(k.name, '[^/]+', 2) AS db_name,
-  f.type AS file_type,
-  ROUND(SUM(f.bytes) / 1024 / 1024 / 1024, 2) AS total_size_gb,
-  COUNT(*) AS file_count
-FROM
-  v$asm_file f
-JOIN
-  x$kfalias k
-  ON f.group_number = k.group_kfbh AND f.file_number = k.number_kfafh
-WHERE
-  k.name LIKE '+%'  -- Only include fully qualified ASM paths
-  AND REGEXP_SUBSTR(k.name, '[^/]+', 2) IS NOT NULL
-GROUP BY
-  REGEXP_SUBSTR(k.name, '[^/]+', 2), f.type
-ORDER BY
-  total_size_gb DESC;
+# Path to the Terraform variables file
+$variablesFile = "variables.tf"
+
+# Read all lines
+$lines = Get-Content $variablesFile
+
+$blocks = @()
+$currentBlock = @()
+$inBlock = $false
+$braceCount = 0
+
+for ($i = 0; $i -lt $lines.Count; $i++) {
+    $line = $lines[$i].TrimEnd()
+
+    if (-not $inBlock) {
+        # Collect comments and blank lines
+        $commentBlock = @()
+        while ($line -match '^\s*(#|//)' -or $line -eq '') {
+            $commentBlock += $line
+            $i++
+            if ($i -ge $lines.Count) { break }
+            $line = $lines[$i].TrimEnd()
+        }
+
+        # Start of variable block
+        if ($line -match '^\s*variable\s+"([^"]+)"\s*{') {
+            $inBlock = $true
+            $braceCount = ($line -split '{').Count - 1
+            $braceCount -= ($line -split '}').Count - 1
+            $currentBlock = @($commentBlock + $line)
+        }
+    } else {
+        # Inside a variable block — track nested braces
+        $braceCount += ($line -split '{').Count - 1
+        $braceCount -= ($line -split '}').Count - 1
+        $currentBlock += $line
+
+        if ($braceCount -eq 0) {
+            # End of block
+            $blocks += ,@($currentBlock)
+            $currentBlock = @()
+            $inBlock = $false
+        }
+    }
+}
+
+# Extract block name and pair with content
+$parsed = foreach ($block in $blocks) {
+    $joined = ($block -join "`n").Trim()
+    if ($joined -match 'variable\s+"([^"]+)"') {
+        [PSCustomObject]@{
+            Name = $matches[1]
+            Block = $joined
+        }
+    }
+}
+
+# Sort blocks alphabetically
+$sorted = $parsed | Sort-Object Name
+
+# Write sorted blocks back to file
+$finalContent = ($sorted | ForEach-Object { $_.Block }) -join "`n`n"
+Set-Content -Path $variablesFile -Value $finalContent
+
+Write-Output "Variables sorted alphabetically with comments and nested blocks preserved."
