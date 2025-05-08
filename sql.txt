@@ -1,21 +1,23 @@
 SELECT
     g.name AS diskgroup_name,
-    -- Extract likely DB name from alias (first part before the slash)
-    REGEXP_SUBSTR(a.name, '^[^/]+') AS db_name,
+    parent.name AS db_name,
     f.type AS file_type,
     COUNT(*) AS file_count,
     ROUND(SUM(f.bytes)/1024/1024, 2) AS total_size_mb
 FROM
     v$asm_file f
 JOIN
-    v$asm_alias a
-    ON f.group_number = a.group_number AND f.file_number = a.file_number
+    v$asm_alias child
+    ON f.group_number = child.group_number AND f.file_number = child.file_number
+JOIN
+    v$asm_alias parent
+    ON child.parent_index = parent.alias_index AND child.group_number = parent.group_number
 JOIN
     v$asm_diskgroup g
     ON f.group_number = g.group_number
 WHERE
-    a.name LIKE '%/%'  -- filter out aliases not in DB subfolders
+    parent.parent_index != 0  -- Skip top-level folders like +DATA
 GROUP BY
-    g.name, REGEXP_SUBSTR(a.name, '^[^/]+'), f.type
+    g.name, parent.name, f.type
 ORDER BY
-    g.name, db_name, file_type;
+    g.name, parent.name, f.type;
