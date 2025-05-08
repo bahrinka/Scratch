@@ -1,55 +1,17 @@
-WITH alias_paths AS (
-  SELECT
-    a.group_number,
-    a.file_number,
-    a.alias_index,
-    a.parent_index,
-    a.name,
-    '/' || a.name AS path
-  FROM
-    v$asm_alias a
-  WHERE
-    a.parent_index = 0
-  UNION ALL
-  SELECT
-    a.group_number,
-    a.file_number,
-    a.alias_index,
-    a.parent_index,
-    a.name,
-    ap.path || '/' || a.name
-  FROM
-    v$asm_alias a
-  JOIN
-    alias_paths ap
-    ON a.parent_index = ap.alias_index AND a.group_number = ap.group_number
-),
-resolved AS (
-  SELECT
-    REGEXP_SUBSTR(path, '[^/]+', 2) AS db_name,  -- Extract DB name from full path
-    f.type AS file_type,
-    g.name AS diskgroup_name,
-    f.bytes
-  FROM
-    v$asm_file f
-  JOIN
-    alias_paths ap
-    ON f.group_number = ap.group_number AND f.file_number = ap.file_number
-  JOIN
-    v$asm_diskgroup g
-    ON f.group_number = g.group_number
-  WHERE
-    REGEXP_SUBSTR(path, '[^/]+', 2) IS NOT NULL
-)
 SELECT
-  diskgroup_name,
-  db_name,
-  file_type,
-  COUNT(*) AS file_count,
-  ROUND(SUM(bytes)/1024/1024, 2) AS total_size_mb
+  REGEXP_SUBSTR(k.name, '[^/]+', 2) AS db_name,
+  f.type AS file_type,
+  ROUND(SUM(f.bytes) / 1024 / 1024 / 1024, 2) AS total_size_gb,
+  COUNT(*) AS file_count
 FROM
-  resolved
+  v$asm_file f
+JOIN
+  x$kfalias k
+  ON f.group_number = k.group_kfbh AND f.file_number = k.number_kfafh
+WHERE
+  k.name LIKE '+%'  -- Only include fully qualified ASM paths
+  AND REGEXP_SUBSTR(k.name, '[^/]+', 2) IS NOT NULL
 GROUP BY
-  diskgroup_name, db_name, file_type
+  REGEXP_SUBSTR(k.name, '[^/]+', 2), f.type
 ORDER BY
-  diskgroup_name, db_name, file_type;
+  total_size_gb DESC;
