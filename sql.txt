@@ -1,0 +1,31 @@
+SELECT
+    a.name AS db_name,
+    f.type AS file_type,
+    ROUND(SUM(f.bytes) / 1024 / 1024, 2) AS total_size_mb
+FROM
+    v$asm_file f
+JOIN
+    v$asm_alias a
+    ON f.group_number = a.group_number AND f.file_number = a.file_number
+WHERE
+    a.name NOT LIKE '+%'  -- Exclude internal aliases
+GROUP BY
+    a.name, f.type
+ORDER BY
+    a.name, f.type;
+
+SELECT
+    REGEXP_SUBSTR(a.full_path, '[^/]+', 2) AS db_name,
+    f.type AS file_type,
+    ROUND(SUM(f.bytes)/1024/1024, 2) AS total_size_mb
+FROM
+    v$asm_file f
+JOIN
+    v$asm_alias a
+    ON f.group_number = a.group_number AND f.file_number = a.file_number
+WHERE
+    a.full_path IS NOT NULL
+GROUP BY
+    REGEXP_SUBSTR(a.full_path, '[^/]+', 2), f.type
+ORDER BY
+    db_name, file_type;
