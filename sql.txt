@@ -1,31 +1,36 @@
+WITH alias_paths AS (
+    SELECT
+        a.group_number,
+        a.file_number,
+        a.alias_index,
+        a.parent_index,
+        a.name AS alias_name,
+        SYS_CONNECT_BY_PATH(name, '/') AS path
+    FROM
+        v$asm_alias a
+    START WITH a.parent_index = 0
+    CONNECT BY PRIOR alias_index = parent_index
+),
+joined AS (
+    SELECT
+        REGEXP_SUBSTR(path, '[^/]+', 2) AS db_name,
+        f.type AS file_type,
+        f.bytes
+    FROM
+        v$asm_file f
+    JOIN
+        alias_paths ap
+        ON f.group_number = ap.group_number AND f.file_number = ap.file_number
+    WHERE
+        REGEXP_SUBSTR(path, '[^/]+', 2) IS NOT NULL
+)
 SELECT
-    a.name AS db_name,
-    f.type AS file_type,
-    ROUND(SUM(f.bytes) / 1024 / 1024, 2) AS total_size_mb
+    db_name,
+    file_type,
+    ROUND(SUM(bytes)/1024/1024, 2) AS total_size_mb
 FROM
-    v$asm_file f
-JOIN
-    v$asm_alias a
-    ON f.group_number = a.group_number AND f.file_number = a.file_number
-WHERE
-    a.name NOT LIKE '+%'  -- Exclude internal aliases
+    joined
 GROUP BY
-    a.name, f.type
-ORDER BY
-    a.name, f.type;
-
-SELECT
-    REGEXP_SUBSTR(a.full_path, '[^/]+', 2) AS db_name,
-    f.type AS file_type,
-    ROUND(SUM(f.bytes)/1024/1024, 2) AS total_size_mb
-FROM
-    v$asm_file f
-JOIN
-    v$asm_alias a
-    ON f.group_number = a.group_number AND f.file_number = a.file_number
-WHERE
-    a.full_path IS NOT NULL
-GROUP BY
-    REGEXP_SUBSTR(a.full_path, '[^/]+', 2), f.type
+    db_name, file_type
 ORDER BY
     db_name, file_type;
