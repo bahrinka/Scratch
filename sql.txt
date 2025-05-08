@@ -1,36 +1,21 @@
-WITH alias_paths AS (
-    SELECT
-        a.group_number,
-        a.file_number,
-        a.alias_index,
-        a.parent_index,
-        a.name AS alias_name,
-        SYS_CONNECT_BY_PATH(name, '/') AS path
-    FROM
-        v$asm_alias a
-    START WITH a.parent_index = 0
-    CONNECT BY PRIOR alias_index = parent_index
-),
-joined AS (
-    SELECT
-        REGEXP_SUBSTR(path, '[^/]+', 2) AS db_name,
-        f.type AS file_type,
-        f.bytes
-    FROM
-        v$asm_file f
-    JOIN
-        alias_paths ap
-        ON f.group_number = ap.group_number AND f.file_number = ap.file_number
-    WHERE
-        REGEXP_SUBSTR(path, '[^/]+', 2) IS NOT NULL
-)
 SELECT
-    db_name,
-    file_type,
-    ROUND(SUM(bytes)/1024/1024, 2) AS total_size_mb
+    g.name AS diskgroup_name,
+    -- Extract likely DB name from alias (first part before the slash)
+    REGEXP_SUBSTR(a.name, '^[^/]+') AS db_name,
+    f.type AS file_type,
+    COUNT(*) AS file_count,
+    ROUND(SUM(f.bytes)/1024/1024, 2) AS total_size_mb
 FROM
-    joined
+    v$asm_file f
+JOIN
+    v$asm_alias a
+    ON f.group_number = a.group_number AND f.file_number = a.file_number
+JOIN
+    v$asm_diskgroup g
+    ON f.group_number = g.group_number
+WHERE
+    a.name LIKE '%/%'  -- filter out aliases not in DB subfolders
 GROUP BY
-    db_name, file_type
+    g.name, REGEXP_SUBSTR(a.name, '^[^/]+'), f.type
 ORDER BY
-    db_name, file_type;
+    g.name, db_name, file_type;
